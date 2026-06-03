@@ -7,6 +7,26 @@ from .allocation import get_allocation, subdivide_paths_into_segments
 from .widths import get_widths
 from .helpers import flowlines_to_endpoints, fill_holes
 
+# change
+# operate on a single network at a time. if user wants to process multiple networks, they can call the function multiple times.
+# inputs:
+# - mask: 2D boolean array where True indicates the presence of the valley (or river) and False indicates the absence.
+# - inlets: list of tuples, where each tuple contains a list of (row, col) coordinates representing the inlet points and a tuple representing the outlet point (row, col).
+# - outlet: tuple (row, col) representing the outlet point of the valley (or river).
+# - width_method: string indicating the method to use for width calculation. Options could include "laplace", "xsection"
+# - inlet_distance_threshold
+
+# outputs
+# centerlines: Centerlines object containing the centerline raster and per-segment annotations (segment_id, network_id, path_label, path_uid, strahler_order, downstream_segment_id, length, pixels).
+# allocation: 2D array where each pixel is assigned a segment ID corresponding to the nearest centerline segment.
+# widths: 2D array where each pixel has a width value corresponding to the width of the valley at that location, calculated using the specified method.
+
+# usage
+# valley_result = measure_valley(mask, inlets, outlet, width_method="laplace", inlet_distance_threshold=100.0)
+# centerlines = valley_result.centerlines
+# allocation = valley_result.allocation
+# widths = valley_result.widths
+
 
 @dataclass
 class ValleyResult:
