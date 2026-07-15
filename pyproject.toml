@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "valley-axis"
+name = "branch"
 version = "0.1.0"
-description = "Valley floor centerline extraction and width computation."
+description = "Branching shape analysis"
 readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["geomorphology", "valley", "centerline", "width", "GIS", "raster"]
@@ -36,10 +36,10 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["valley_axis"]
+packages = ["branch"]
 
 [tool.hatch.build.targets.wheel.shared-data]
-"valley_axis/sample_data" = "valley_axis/sample_data"
+"branch/sample_data" = "branch/sample_data"
 
 [dependency-groups]
 dev = [
