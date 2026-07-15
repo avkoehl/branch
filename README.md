@@ -1,4 +1,4 @@
-# valley-axis
+# branch
 
 Valley width is a key parameter to measure along rivers. Typically it is
 measured using cross sections perpendicular to the valley centerline. A
