@@ -99,11 +99,12 @@ Splits each path's territory into per-segment territories.
 
 ### Widths
 
-Width estimation makes two independent choices: the **interpolator** — `laplace`
-(smooth diffusion from the centerline) or `nearest` (each pixel takes its nearest
-centerline pixel's width) — and the **domain** — the whole shape (`widths`) or
-independently within each partitioned region (`region_widths`), which keeps widths
-from diffusing across path boundaries at junctions.
+Width estimation makes two independent choices: the **interpolator** —
+`laplace` (smooth diffusion from the centerline) or `nearest` (each pixel takes
+its nearest centerline pixel's width) — and the **domain** — the whole shape
+(`widths`) or independently within each partitioned region (`region_widths`),
+which keeps junction-zone pixels from averaging between a branch and its
+mainstem at junctions.
 
 ```python
 w = branch.widths(mask, net.rasterize(), method="laplace")
@@ -113,7 +114,3 @@ w = branch.region_widths(mask, net.rasterize(), regions, method="nearest")
 ```
 
 ![widths matrix](docs/images/widths_matrix.png)
-
-Use `laplace` for smooth fields and along-path analysis, `nearest` for speed on
-large rasters; use `region_widths` whenever per-branch statistics or junction
-behavior matter.
