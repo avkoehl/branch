@@ -55,10 +55,12 @@ def draw_labels(ax, labeled, net=None, endpoints=False, centerline=False):
     ax.set_axis_off()
 
 
-def draw_float(ax, arr, norm):
-    im = ax.imshow(arr, cmap="viridis", norm=norm, interpolation="nearest")
-    plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, label="width (log scale)")
+def draw_float(ax, arr, norm, cmap="viridis", colorbar=True):
+    im = ax.imshow(arr, cmap=cmap, norm=norm, interpolation="nearest")
+    if colorbar:
+        plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, label="width")
     ax.set_axis_off()
+    return im
 
 
 def save(name, fig):
@@ -71,15 +73,6 @@ def save(name, fig):
 def save_labels(name, labeled, titles=None, **kw):
     fig, ax = plt.subplots(figsize=(9, 7))
     draw_labels(ax, values(labeled), **kw)
-    save(name, fig)
-
-
-def save_float(name, arrs, titles, norm):
-    arrs = [values(a) for a in arrs]
-    fig, axes = plt.subplots(1, len(arrs), figsize=(8 * len(arrs), 7), squeeze=False)
-    for ax, a, t in zip(axes[0], arrs, titles):
-        draw_float(ax, a, norm)
-        ax.set_title(t)
     save(name, fig)
 
 
@@ -101,10 +94,28 @@ with warnings.catch_warnings():
     rw_lap = branch.region_widths(mask, net.rasterize(), regions, method="laplace")
     rw_near = branch.region_widths(mask, net.rasterize(), regions, method="nearest")
 
-# shared log scale across every width image so they are directly comparable
+
+# shared discrete log-spaced bins (1-2-5 sequence) across every width image
+def log_bins(vmin, vmax):
+    edges, k = [], int(np.floor(np.log10(max(vmin, 1e-12))))
+    while not edges or edges[-1] < vmax:
+        for m in (1, 2, 5):
+            edges.append(m * 10.0**k)
+        k += 1
+    lo = max(i for i, e in enumerate(edges) if e <= vmin) if edges[0] <= vmin else 0
+    edges = [e for e in edges[lo:] if e / 1.0001 <= vmax]
+    while len(edges) > 9:  # coarsen: drop the 2s, then fall back to decades
+        edges = [e for e in edges if not str(e).lstrip("0.").startswith("2")]
+        if len(edges) > 9:
+            edges = [e for e in edges if str(e).lstrip("0.").startswith("1")]
+    return edges
+
+
 allw = np.concatenate([values(a).ravel() for a in (w_lap, w_near, rw_lap, rw_near)])
 finite = allw[np.isfinite(allw) & (allw > 0)]
-NORM = mcolors.LogNorm(vmin=finite.min(), vmax=finite.max())
+BINS = log_bins(float(finite.min()), float(finite.max()))
+CMAP = plt.get_cmap("cividis", len(BINS))
+NORM = mcolors.BoundaryNorm(BINS, ncolors=len(BINS), extend="max")
 
 # -- graphical abstract ----------------------------------------------------------
 
@@ -123,7 +134,7 @@ axes[1].imshow(mask_arr, cmap="gray_r", alpha=0.25)
 axes[1].imshow(mapped, cmap=cmap, vmin=0, vmax=max(n - 1, 1), interpolation="nearest")
 axes[1].set_title("branch segmentation")
 axes[1].set_axis_off()
-draw_float(axes[2], values(rw_lap), NORM)
+draw_float(axes[2], values(rw_lap), NORM, cmap=CMAP)
 axes[2].set_title("interpolated widths")
 save("abstract.png", fig)
 
@@ -138,11 +149,18 @@ save_labels("allocate.png", regions, net=net, centerline=True)
 save_labels("voronoi.png", regions_vor, net=net, centerline=True)
 save_labels("subdivide.png", seg_regions, net=net, centerline=True)
 
-save_float("widths_laplace.png", [w_lap], [""], NORM)
-save_float("widths_nearest.png", [w_near], [""], NORM)
-save_float(
-    "region_widths.png",
-    [rw_lap, rw_near],
-    ['method="laplace"', 'method="nearest"'],
-    NORM,
-)
+# 2x2 matrix: interpolator (columns) x domain (rows), one shared colorbar
+fig, axes = plt.subplots(2, 2, figsize=(14, 13))
+panels = [
+    (axes[0, 0], w_lap, 'widths(..., method="laplace")'),
+    (axes[0, 1], w_near, 'widths(..., method="nearest")'),
+    (axes[1, 0], rw_lap, 'region_widths(..., method="laplace")'),
+    (axes[1, 1], rw_near, 'region_widths(..., method="nearest")'),
+]
+for ax, arr, title in panels:
+    im = draw_float(ax, values(arr), NORM, cmap=CMAP, colorbar=False)
+    ax.set_title(title, fontfamily="monospace", fontsize=11)
+fig.colorbar(im, ax=axes, fraction=0.03, pad=0.02, label="width", extend="max")
+fig.savefig(OUT / "widths_matrix.png", dpi=150, bbox_inches="tight")
+plt.close(fig)
+print("saved widths_matrix.png")
