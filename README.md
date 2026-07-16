@@ -1,9 +1,10 @@
 # branch
 
-Characterize binary branching shapes — rivers, valley floors, floodplains, glaciers, roots.
-Given a shape mask, a root point, and (optionally) branch tips, `branch` extracts a
-topology-aware centerline network, decomposes it into hierarchically ordered paths,
-allocates every pixel of the shape to its path, and estimates local width everywhere.
+Characterize binary branching shapes (e.g. rivers, valley floors, floodplains,
+glaciers, roots, veins...). Given a shape mask, a root point, and (optionally)
+branch tips, `branch` extracts a topology-aware centerline network, decomposes
+it into hierarchically ordered paths, allocates every pixel of the shape to its
+path, and estimates local width everywhere.
 
 ![graphical abstract](docs/images/abstract.png)
 
