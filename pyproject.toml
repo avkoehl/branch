@@ -5,10 +5,21 @@ build-backend = "hatchling.build"
 [project]
 name = "branch"
 version = "0.1.0"
-description = "Branching shape analysis"
+description = "Segment and measure binary branching shapes: centerline extraction, hierarchical space partitioning, and width interpolation"
+keywords = [
+    "centerline",
+    "skeleton",
+    "medial-axis",
+    "segmentation",
+    "raster",
+    "geomorphology",
+    "river",
+    "valley",
+    "morphometry",
+    "width",
+]
 readme = "README.md"
 requires-python = ">=3.12"
-keywords = ["geomorphology", "valley", "centerline", "width", "GIS", "raster"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -29,19 +40,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "jupyter",
     "matplotlib",
-    "ipykernel"
+    "snakeviz"
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["branch"]
 
 [tool.hatch.build.targets.wheel.shared-data]
-"branch/sample_data" = "branch/sample_data"
-
-[dependency-groups]
-dev = [
-    "snakeviz>=2.2.2",
-]
+"branch/data" = "branch/data"

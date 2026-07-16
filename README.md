@@ -29,7 +29,7 @@ from branch.data import load
 
 mask, root, tips = load()                       # bundled toy dataset
 
-result = branch.analyze(mask, root, tips=tips)  # tips optional; auto-detected if omitted
+result = branch.analyze(mask, root, tips=tips)
 result.network.segments                         # DataFrame: segment_id, path_id, strahler,
                                                 #   length, weight, downstream_segment_id
 result.regions                                  # labeled raster: each pixel -> its path
@@ -41,32 +41,78 @@ outputs match the input type. `root` and `tips` are `(row, col)` pixel coordinat
 
 ## Components
 
-`analyze` composes three independent primitives. Each is usable on its own.
+`analyze` composes the functions below. Each is usable on its own.
 
-### Centerlines — `extract`
+### Centerlines
 
-Skeletonizes the mask, routes from tips to root (pruning everything else), and
-decomposes the network into paths — at each junction the "heaviest" branch continues
-(`path_by="area" | "length" | "strahler"`; `path_id == 1` is the mainstem). With no
-tips provided, every skeleton endpoint becomes a tip.
+```python
+net = branch.extract(mask, root, tips=tips)
+```
 
-![centerlines](docs/images/centerlines.png)
+Skeletonizes the mask, routes from each tip to the root (pruning everything else),
+and decomposes the network into ordered paths — `path_id == 1` is the mainstem.
 
-### Partitioning — `allocate`, `voronoi`
+![extract with tips](docs/images/extract_tips.png)
 
-`allocate` assigns every pixel to a path: paths claim territory in priority order,
-each limited by the local shape radius, so wide branches claim proportionally more
-space at junctions. `voronoi` is the unordered nearest-centerline baseline —
-compare them at the confluences:
+```python
+net = branch.extract(mask, root)
+```
 
-![allocation](docs/images/allocation.png)
+Without tips, every skeleton endpoint becomes a tip.
 
-`subdivide(regions, network)` splits each path's territory by its segments.
+![extract auto tips](docs/images/extract_auto.png)
 
-### Widths — `widths`, `region_widths`
+### Partitioning
 
-Exact widths (2 × distance-to-boundary) at the centerline, interpolated across the
-shape (`method="laplace" | "nearest"`). `region_widths` interpolates independently
-within each region so widths never diffuse across path boundaries:
+```python
+regions = branch.allocate(mask, net.rasterize(by="path"))
+```
 
-![widths](docs/images/widths.png)
+Assigns every pixel to a path: paths claim territory in priority order, each limited
+by the local shape radius, so wide branches claim proportionally more space at junctions.
+
+![allocate](docs/images/allocate.png)
+
+```python
+regions = branch.voronoi(mask, net.rasterize(by="path"))
+```
+
+Nearest-centerline partition — no ordering, no radius limits.
+
+![voronoi](docs/images/voronoi.png)
+
+```python
+seg_regions = branch.subdivide(regions, net)
+```
+
+Splits each path's territory into per-segment territories.
+
+![subdivide](docs/images/subdivide.png)
+
+### Widths
+
+```python
+w = branch.widths(mask, net.rasterize(), method="laplace")
+```
+
+Takes exact widths (2 × distance-to-boundary) at the centerline and diffuses them
+smoothly across the shape.
+
+![widths laplace](docs/images/widths_laplace.png)
+
+```python
+w = branch.widths(mask, net.rasterize(), method="nearest")
+```
+
+Each pixel takes the width of its nearest centerline pixel (piecewise constant).
+
+![widths nearest](docs/images/widths_nearest.png)
+
+```python
+w = branch.region_widths(mask, net.rasterize(), regions)
+```
+
+Interpolates independently within each region, so widths never diffuse across path
+boundaries at junctions. Supports both methods.
+
+![region widths](docs/images/region_widths.png)

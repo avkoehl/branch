@@ -1,4 +1,5 @@
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -39,134 +40,109 @@ def label_cmap(arr):
     return np.ma.masked_where(arr == 0, lookup[arr]), cmap, n
 
 
-def panel_mask(ax, mask_arr, title="", net=None):
-    ax.imshow(np.ma.masked_where(mask_arr == 0, mask_arr), cmap="gray", vmin=0, vmax=2)
-    if net is not None:
-        ax.plot(net.root[1], net.root[0], "k*", markersize=14, mec="w", label="root")
-        if net.tips:
-            tr, tc = zip(*net.tips)
-            ax.plot(tc, tr, "wo", markersize=5, mec="k", label="tips")
-        ax.legend(loc="lower right", fontsize=8)
-    ax.set_title(title)
-    ax.set_axis_off()
-
-
-def panel_labels(ax, labeled, title="", mask_arr=None, net=None, endpoints=False):
-    if mask_arr is not None:
-        ax.imshow(mask_arr, cmap="gray_r", alpha=0.25)
+def draw_labels(ax, labeled, net=None, endpoints=False, centerline=False):
+    ax.imshow(mask_arr, cmap="gray_r", alpha=0.25)
     mapped, cmap, n = label_cmap(labeled)
     ax.imshow(mapped, cmap=cmap, vmin=0, vmax=max(n - 1, 1), interpolation="nearest")
-    if net is not None and endpoints:
+    if centerline and net is not None:
+        rr, cc = np.nonzero(values(net.rasterize()))
+        ax.plot(cc, rr, "k.", markersize=0.4)
+    if endpoints and net is not None:
         ax.plot(net.root[1], net.root[0], "k*", markersize=14, mec="w")
         if net.tips:
             tr, tc = zip(*net.tips)
             ax.plot(tc, tr, "wo", markersize=5, mec="k")
-    ax.set_title(title)
     ax.set_axis_off()
 
 
-def panel_float(ax, arr, title="", cmap="viridis", norm=None):
-    # log scale: branching shapes span orders of magnitude in width
-    if norm is None:
-        finite = arr[np.isfinite(arr) & (arr > 0)]
-        norm = (
-            mcolors.LogNorm(vmin=finite.min(), vmax=finite.max())
-            if finite.size
-            else None
-        )
-    im = ax.imshow(arr, cmap=cmap, norm=norm, interpolation="nearest")
+def draw_float(ax, arr, norm):
+    im = ax.imshow(arr, cmap="viridis", norm=norm, interpolation="nearest")
     plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, label="width (log scale)")
-    ax.set_title(title)
     ax.set_axis_off()
 
 
-# -- pipeline -----------------------------------------------------------------
+def save(name, fig):
+    fig.tight_layout()
+    fig.savefig(OUT / name, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {name}")
+
+
+def save_labels(name, labeled, titles=None, **kw):
+    fig, ax = plt.subplots(figsize=(9, 7))
+    draw_labels(ax, values(labeled), **kw)
+    save(name, fig)
+
+
+def save_float(name, arrs, titles, norm):
+    arrs = [values(a) for a in arrs]
+    fig, axes = plt.subplots(1, len(arrs), figsize=(8 * len(arrs), 7), squeeze=False)
+    for ax, a, t in zip(axes[0], arrs, titles):
+        draw_float(ax, a, norm)
+        ax.set_title(t)
+    save(name, fig)
+
+
+# -- pipeline ------------------------------------------------------------------
 
 mask, root, tips = load()
 mask_arr = values(mask) == 1
 print(f"mask: {mask_arr.shape}, root: {root}, tips: {len(tips)}")
 
-net_tips = branch.extract(mask, root=root, tips=tips)
+net = branch.extract(mask, root=root, tips=tips)
 net_auto = branch.extract(mask, root=root)
-regions = branch.allocate(mask, net_tips.rasterize(by="path"))
-regions_vor = branch.voronoi(mask, net_tips.rasterize(by="path"))
-w = branch.region_widths(mask, net_tips.rasterize(), regions)
+regions = branch.allocate(mask, net.rasterize(by="path"))
+regions_vor = branch.voronoi(mask, net.rasterize(by="path"))
+seg_regions = branch.subdivide(regions, net)
+w_lap = branch.widths(mask, net.rasterize(), method="laplace")
+w_near = branch.widths(mask, net.rasterize(), method="nearest")
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    rw_lap = branch.region_widths(mask, net.rasterize(), regions, method="laplace")
+    rw_near = branch.region_widths(mask, net.rasterize(), regions, method="nearest")
 
-# -- 1. graphical abstract: mask -> regions -> widths --------------------------
+# shared log scale across every width image so they are directly comparable
+allw = np.concatenate([values(a).ravel() for a in (w_lap, w_near, rw_lap, rw_near)])
+finite = allw[np.isfinite(allw) & (allw > 0)]
+NORM = mcolors.LogNorm(vmin=finite.min(), vmax=finite.max())
+
+# -- graphical abstract ----------------------------------------------------------
 
 fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-panel_mask(
-    axes[0], mask_arr.astype(int), "binary branching shape + root, tips", net=net_tips
+axes[0].imshow(
+    np.ma.masked_where(~mask_arr, mask_arr.astype(int)), cmap="gray", vmin=0, vmax=2
 )
-panel_labels(axes[1], values(regions), "branch segmentation")
-panel_float(axes[2], values(w), "interpolated widths")
-plt.tight_layout()
-plt.savefig(OUT / "abstract.png", dpi=150, bbox_inches="tight")
-plt.close()
-print("saved abstract.png")
+axes[0].plot(net.root[1], net.root[0], "k*", markersize=14, mec="w", label="root")
+tr, tc = zip(*net.tips)
+axes[0].plot(tc, tr, "wo", markersize=5, mec="k", label="tips")
+axes[0].legend(loc="lower right", fontsize=8)
+axes[0].set_title("binary branching shape + root, tips")
+axes[0].set_axis_off()
+mapped, cmap, n = label_cmap(values(regions))
+axes[1].imshow(mask_arr, cmap="gray_r", alpha=0.25)
+axes[1].imshow(mapped, cmap=cmap, vmin=0, vmax=max(n - 1, 1), interpolation="nearest")
+axes[1].set_title("branch segmentation")
+axes[1].set_axis_off()
+draw_float(axes[2], values(rw_lap), NORM)
+axes[2].set_title("interpolated widths")
+save("abstract.png", fig)
 
-# -- 2a. centerlines: with vs without tips -------------------------------------
+# -- individual function outputs --------------------------------------------------
 
-fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-for ax, (name, net) in zip(
-    axes, [("tips provided", net_tips), ("tips auto-detected", net_auto)]
-):
-    panel_labels(
-        ax,
-        values(net.rasterize(by="path")),
-        f"centerline paths ({name})\n{net.segments.path_id.max()} paths, "
-        f"{len(net.segments)} segments",
-        mask_arr=mask_arr,
-        net=net,
-        endpoints=True,
-    )
-plt.tight_layout()
-plt.savefig(OUT / "centerlines.png", dpi=150, bbox_inches="tight")
-plt.close()
-print("saved centerlines.png")
-
-# -- 2b. allocate vs voronoi (with tips) ---------------------------------------
-
-fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-panel_labels(
-    axes[0],
-    values(regions),
-    "allocate (ordered, radius-limited)",
-    mask_arr=mask_arr,
-    net=net_tips,
-)
-panel_labels(
-    axes[1],
-    values(regions_vor),
-    "voronoi (nearest centerline)",
-    mask_arr=mask_arr,
-    net=net_tips,
-)
-for ax in axes:
-    cl = values(net_tips.rasterize())
-    rr, cc = np.nonzero(cl)
-    ax.plot(cc, rr, "k.", markersize=0.4)
-plt.tight_layout()
-plt.savefig(OUT / "allocation.png", dpi=150, bbox_inches="tight")
-plt.close()
-diff = int((values(regions) != values(regions_vor)).sum())
-print(
-    f"saved allocation.png ({diff} px differ, "
-    f"{100 * diff / mask_arr.sum():.1f}% of mask)"
+save_labels("extract_tips.png", net.rasterize(by="path"), net=net, endpoints=True)
+save_labels(
+    "extract_auto.png", net_auto.rasterize(by="path"), net=net_auto, endpoints=True
 )
 
-# -- 2c. region widths: laplace vs nearest -------------------------------------
+save_labels("allocate.png", regions, net=net, centerline=True)
+save_labels("voronoi.png", regions_vor, net=net, centerline=True)
+save_labels("subdivide.png", seg_regions, net=net, centerline=True)
 
-w_nearest = branch.region_widths(mask, net_tips.rasterize(), regions, method="nearest")
-
-both = np.concatenate([values(w).ravel(), values(w_nearest).ravel()])
-finite = both[np.isfinite(both) & (both > 0)]
-shared = mcolors.LogNorm(vmin=finite.min(), vmax=finite.max())
-
-fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-panel_float(axes[0], values(w), "laplace (smooth diffusion)", norm=shared)
-panel_float(axes[1], values(w_nearest), "nearest (piecewise constant)", norm=shared)
-plt.tight_layout()
-plt.savefig(OUT / "widths.png", dpi=150, bbox_inches="tight")
-plt.close()
-print("saved widths.png")
+save_float("widths_laplace.png", [w_lap], [""], NORM)
+save_float("widths_nearest.png", [w_near], [""], NORM)
+save_float(
+    "region_widths.png",
+    [rw_lap, rw_near],
+    ['method="laplace"', 'method="nearest"'],
+    NORM,
+)
