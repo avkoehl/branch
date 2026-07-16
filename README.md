@@ -52,6 +52,7 @@ net = branch.extract(mask, root, tips=tips)
 Skeletonizes the mask, routes from each tip to the root (pruning everything else),
 and decomposes the network into ordered paths — `path_id == 1` is the mainstem.
 
+
 ![extract with tips](docs/images/extract_tips.png)
 
 ```python
@@ -61,6 +62,13 @@ net = branch.extract(mask, root)
 Without tips, every skeleton endpoint becomes a tip.
 
 ![extract auto tips](docs/images/extract_auto.png)
+
+Tips and root can often be derived automatically — glacier branch tips
+[Kienholz et al.,
+2014](https://tc.copernicus.org/articles/8/503/2014/tc-8-503-2014.pdf), channel
+initiation points, or the lowest point on the boundary as the root — or simply
+digitized in GIS software.
+
 
 ### Partitioning
 
