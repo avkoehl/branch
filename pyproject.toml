@@ -35,7 +35,6 @@ dependencies = [
     "geopandas",
     "xarray",
     "rioxarray",
-    "scikit-fmm>=2025.6.23",
 ]
 
 [project.optional-dependencies]
