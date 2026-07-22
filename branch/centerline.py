@@ -156,7 +156,13 @@ def _snap_paths(points, nodes, mask_bool):
     # returns list of pixel-paths (or None if unreachable), aligned with points
     penalty = np.where(mask_bool, 1.0, np.inf)
     mcp = MCP_Geometric(penalty)
-    mcp.find_costs(starts=[list(n) for n in nodes])
+    # only points off the skeleton need tracing; pass them as ends so the flood
+    # stops once they are reached (they sit on/near the skeleton) instead of
+    # filling the whole array. Costs and tracebacks for the reached ends are
+    # identical to the full-flood result.
+    ends = [list(p) for p in points if p not in nodes]
+    if ends:
+        mcp.find_costs(starts=[list(n) for n in nodes], ends=ends)
 
     out = []
     for p in points:
