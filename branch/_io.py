@@ -52,3 +52,32 @@ def wrap(values, meta):
         out.rio.write_crs(meta.crs, inplace=True)
         out.rio.write_transform(meta.transform, inplace=True)
     return out
+
+
+def edt_field(mask_bool, open_boundary):
+    """Foreground array for the local-half-width distance transform.
+
+    ``distance_transform_edt`` of the returned array gives, at each shape pixel,
+    the distance to the nearest *wall*. By default (``open_boundary is None``)
+    every non-shape pixel is a wall -- the original behaviour. When
+    ``open_boundary`` is given, its truthy pixels are treated as void (open,
+    not a wall): they join the shape as foreground, so half-widths are measured
+    only to the remaining real walls. Accepts np.ndarray or xr.DataArray.
+    """
+    if open_boundary is None:
+        return mask_bool
+    open_arr, _, _ = unwrap(open_boundary)
+    open_bool = np.asarray(open_arr) > 0
+    if open_bool.shape != mask_bool.shape:
+        raise ValueError(
+            f"open_boundary shape {open_bool.shape} does not match "
+            f"mask shape {mask_bool.shape}"
+        )
+    field = mask_bool | open_bool
+    if field.all():
+        import warnings
+
+        warnings.warn(
+            "open_boundary leaves no wall pixels; local half-widths will be zero"
+        )
+    return field

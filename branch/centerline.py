@@ -7,7 +7,7 @@ from scipy.ndimage import distance_transform_edt
 from skimage.morphology import skeletonize
 from skimage.graph import MCP_Geometric
 
-from ._io import unwrap, wrap, GridMeta
+from ._io import unwrap, wrap, edt_field, GridMeta
 
 SQRT2 = np.sqrt(2.0)
 _OFFSETS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
@@ -69,7 +69,8 @@ class Network:
         return gpd.GeoDataFrame(gdf, geometry="geometry", crs=self._meta.crs)
 
 
-def extract(mask, root, tips=None, path_by="area", pixel_size=None) -> Network:
+def extract(mask, root, tips=None, path_by="area", pixel_size=None,
+            open_boundary=None) -> Network:
     if path_by not in ("area", "length", "strahler"):
         raise ValueError(
             f"path_by must be 'area', 'length', or 'strahler', got {path_by!r}"
@@ -129,7 +130,7 @@ def extract(mask, root, tips=None, path_by="area", pixel_size=None) -> Network:
     segments = _to_segments(kept, parent, tip_nodes, root)
 
     # 7. annotate
-    edt = distance_transform_edt(mask_bool) * px
+    edt = distance_transform_edt(edt_field(mask_bool, open_boundary)) * px
     df = _annotate(segments, edt, px, path_by, root)
 
     return Network(

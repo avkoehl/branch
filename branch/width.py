@@ -5,12 +5,12 @@ from scipy.ndimage import distance_transform_edt
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import cg
 
-from ._io import unwrap, wrap
+from ._io import unwrap, wrap, edt_field
 
 SQRT2 = np.sqrt(2.0)
 
 
-def widths(mask, centerline, method="laplace", pixel_size=None):
+def widths(mask, centerline, method="laplace", pixel_size=None, open_boundary=None):
     # Per-pixel width of the shape. Exact widths (2 * distance-to-boundary)
     # are taken at centerline pixels and interpolated across the mask.
     # method="laplace": smooth diffusion (Laplace equation, Dirichlet BCs at
@@ -32,7 +32,9 @@ def widths(mask, centerline, method="laplace", pixel_size=None):
     if not cl_bool.any():
         raise ValueError("no centerline pixels found inside the mask")
 
-    seed_widths = np.where(cl_bool, distance_transform_edt(mask_bool) * px * 2.0, 0.0)
+    seed_widths = np.where(
+        cl_bool, distance_transform_edt(edt_field(mask_bool, open_boundary)) * px * 2.0, 0.0
+    )
 
     interp = _laplace if method == "laplace" else _nearest
     result = interp(cl_bool, mask_bool, seed_widths)
@@ -47,7 +49,8 @@ def widths(mask, centerline, method="laplace", pixel_size=None):
     return out
 
 
-def region_widths(mask, centerline, regions, method="laplace", pixel_size=None):
+def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
+                  open_boundary=None):
     # Like widths(), but interpolated independently within each labeled
     # region (e.g. the output of branch.allocate), so widths do not diffuse
     # across path boundaries at junctions. Each region is seeded only by the
@@ -67,7 +70,9 @@ def region_widths(mask, centerline, regions, method="laplace", pixel_size=None):
     if not cl_bool.any():
         raise ValueError("no centerline pixels found inside the mask")
 
-    seed_widths = np.where(cl_bool, distance_transform_edt(mask_bool) * px * 2.0, 0.0)
+    seed_widths = np.where(
+        cl_bool, distance_transform_edt(edt_field(mask_bool, open_boundary)) * px * 2.0, 0.0
+    )
     interp = _laplace if method == "laplace" else _nearest
 
     out = np.full(mask_bool.shape, np.nan)

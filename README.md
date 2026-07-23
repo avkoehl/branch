@@ -115,3 +115,29 @@ w = branch.region_widths(mask, net.rasterize(), regions, method="nearest")
 ```
 
 ![widths matrix](docs/images/widths_matrix.png)
+
+## Open boundaries
+
+Everything above measures local half-width as the distance from each pixel to the
+shape's boundary, and that half-width drives three things: which branch is the
+mainstem, how far each path claims territory, and the width field. By default
+every boundary pixel is treated as a **wall**. Sometimes part of the boundary is
+not a real wall — the shape is truncated by open water, the data extent, or
+another medium — and treating it as one makes the half-width collapse to zero
+there.
+
+Pass `open_boundary`: a binary mask, on the same grid as the shape, marking the
+non-wall (void) pixels. Distances are then measured only to the remaining real
+walls. It is optional — omitted, every boundary is a wall (the behaviour above) —
+and accepted by `extract`, `allocate`, `widths`, `region_widths`, and `analyze`:
+
+```python
+result = branch.analyze(mask, root, tips=tips, open_boundary=open_boundary)
+```
+
+Below, the same mask, root, and tips are reused, but the void just past the
+outlet (around the root) is marked open (red outline). The skeleton and the
+tip→root routing are unchanged — only distance-to-wall differs — so the `regions`
+barely move, while the outlet `widths` no longer taper to the cut edge:
+
+![open boundary](docs/images/open_boundary.png)

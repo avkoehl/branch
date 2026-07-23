@@ -54,13 +54,17 @@ def analyze(
     level="path",
     width_method="laplace",
     pixel_size=None,
+    open_boundary=None,
 ) -> Result:
     # Full pipeline: extract -> allocate -> (subdivide) -> region_widths.
     if level not in ("path", "segment"):
         raise ValueError(f"level must be 'path' or 'segment', got {level!r}")
 
-    network = extract(mask, root, tips=tips, path_by=path_by, pixel_size=pixel_size)
-    regions = allocate(mask, network.rasterize(by="path"))
+    network = extract(
+        mask, root, tips=tips, path_by=path_by, pixel_size=pixel_size,
+        open_boundary=open_boundary,
+    )
+    regions = allocate(mask, network.rasterize(by="path"), open_boundary=open_boundary)
     if level == "segment":
         regions = subdivide(regions, network)
     w = region_widths(
@@ -69,5 +73,6 @@ def analyze(
         regions,
         method=width_method,
         pixel_size=pixel_size,
+        open_boundary=open_boundary,
     )
     return Result(network=network, regions=regions, widths=w)

@@ -164,3 +164,39 @@ fig.colorbar(im, ax=axes, fraction=0.03, pad=0.02, label="width", extend="max")
 fig.savefig(OUT / "widths_matrix.png", dpi=150, bbox_inches="tight")
 plt.close(fig)
 print("saved widths_matrix.png")
+
+# -- open_boundary: a boundary the shape is truncated by, not a real wall --------
+# Mark the void just past the outlet (root side) as open. Half-widths there are
+# then measured to the true flanking walls instead of collapsing at the cut edge,
+# so the mainstem keeps its width down to the outlet (visible in the widths row).
+rr = np.arange(mask_arr.shape[0])[:, None]
+cc = np.arange(mask_arr.shape[1])[None, :]
+open_boundary = (~mask_arr) & (rr >= root[0] - 10) & (cc <= root[1] + 35)
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    res_open = branch.analyze(mask, root, tips=tips, open_boundary=open_boundary)
+
+fig, axes = plt.subplots(2, 2, figsize=(13, 12))
+panels = [
+    (axes[0, 0], "labels", regions, "regions"),
+    (axes[0, 1], "labels", res_open.regions, "regions, open_boundary=…"),
+    (axes[1, 0], "float", rw_lap, "widths"),
+    (axes[1, 1], "float", res_open.widths, "widths, open_boundary=…"),
+]
+for ax, kind, arr, title in panels:
+    if kind == "labels":
+        mapped, cmap, n = label_cmap(values(arr))
+        ax.imshow(mask_arr, cmap="gray_r", alpha=0.25)
+        ax.imshow(mapped, cmap=cmap, vmin=0, vmax=max(n - 1, 1), interpolation="nearest")
+    else:
+        draw_float(ax, values(arr), NORM, cmap=CMAP, colorbar=False)
+    ax.contour(open_boundary.astype(int), levels=[0.5], colors="red", linewidths=0.9)
+    ax.plot(root[1], root[0], "k*", markersize=12, mec="w")
+    ax.set_title(title, fontfamily="monospace", fontsize=11)
+    ax.set_axis_off()
+fig.colorbar(
+    plt.cm.ScalarMappable(norm=NORM, cmap=CMAP),
+    ax=axes[1, :], fraction=0.03, pad=0.02, label="width", extend="max",
+)
+save("open_boundary.png", fig)

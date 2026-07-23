@@ -4,14 +4,14 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 from skimage.segmentation import watershed
 
-from ._io import unwrap, wrap
+from ._io import unwrap, wrap, edt_field
 
 SQRT2 = np.sqrt(2.0)
 # forward-only neighbour offsets; directed=False makes each bidirectional
 _EDGES = [(0, 1, 1.0), (1, 0, 1.0), (1, 1, SQRT2), (1, -1, SQRT2)]
 
 
-def allocate(mask, seeds):
+def allocate(mask, seeds, open_boundary=None):
     # Ordered, radius-limited claiming. Each path (seed label) claims the mask
     # pixels within *some* of its seeds' local half-width, measured as a
     # boundary-respecting (geodesic) distance -- so a wide-but-farther seed can
@@ -30,7 +30,7 @@ def allocate(mask, seeds):
     _check(mask_bool, seed_arr)
 
     H, W = mask_bool.shape
-    radius = distance_transform_edt(mask_bool)  # local half-width per pixel
+    radius = distance_transform_edt(edt_field(mask_bool, open_boundary))  # local half-width
     allocation = np.zeros(mask_bool.shape, dtype=np.uint32)
 
     # group seed pixels by label once, so each path works from its own coords
