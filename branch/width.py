@@ -3,11 +3,25 @@ import warnings
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import cg
+from scipy.spatial import cKDTree
 
-from ._io import unwrap, wrap, edt_field
+from ._io import unwrap, wrap, edt_field, region_groups
 
 SQRT2 = np.sqrt(2.0)
+# 8-connected stencil; diagonals weighted 1/sqrt(2) for isotropy (and so a pixel
+# attached only diagonally is never isolated)
+_OFFSETS = [
+    (-1, 0, 1.0),
+    (1, 0, 1.0),
+    (0, -1, 1.0),
+    (0, 1, 1.0),
+    (-1, -1, 1 / SQRT2),
+    (-1, 1, 1 / SQRT2),
+    (1, -1, 1 / SQRT2),
+    (1, 1, 1 / SQRT2),
+]
 
 
 def widths(mask, centerline, method="laplace", pixel_size=None, open_boundary=None):
@@ -36,10 +50,25 @@ def widths(mask, centerline, method="laplace", pixel_size=None, open_boundary=No
         cl_bool, distance_transform_edt(edt_field(mask_bool, open_boundary)) * px * 2.0, 0.0
     )
 
-    interp = _laplace if method == "laplace" else _nearest
-    result = interp(cl_bool, mask_bool, seed_widths)
+    out = np.full(mask_bool.shape, np.nan)
+    if method == "nearest":
+        out[mask_bool] = _nearest(cl_bool, seed_widths)[mask_bool]
+    else:
+        idx = np.flatnonzero(mask_bool)
+        out.ravel()[idx] = _laplace(
+            idx, cl_bool.ravel()[idx], seed_widths.ravel()[idx], mask_bool.shape
+        )
+        # parts of the mask the centerline cannot reach (a detached blob, an
+        # island) have no Dirichlet data at all -- fall back rather than
+        # reporting the zero the homogeneous solve would give
+        leftover = mask_bool & np.isnan(out)
+        if leftover.any():
+            warnings.warn(
+                f"{int(leftover.sum())} mask pixels are not connected to the "
+                "centerline; filled by nearest centerline width"
+            )
+            out[leftover] = _nearest(cl_bool, seed_widths)[leftover]
 
-    out = np.where(mask_bool, result, np.nan)
     out = wrap(out, meta)
     if meta is not None:
         try:
@@ -57,6 +86,10 @@ def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
     # centerline pixels inside it. Regions containing no centerline pixels
     # are filled by nearest-centerline fallback (with a warning) so the
     # output always covers the mask.
+    #
+    # Regions are solved from their own flat pixel indices (grouped once, up
+    # front) rather than by re-scanning the full grid per label, so the cost is
+    # O(mask area) in total instead of O(mask area x number of regions).
     if method not in ("laplace", "nearest"):
         raise ValueError(f"method must be 'laplace' or 'nearest', got {method!r}")
 
@@ -73,16 +106,20 @@ def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
     seed_widths = np.where(
         cl_bool, distance_transform_edt(edt_field(mask_bool, open_boundary)) * px * 2.0, 0.0
     )
-    interp = _laplace if method == "laplace" else _nearest
+    cl_flat = cl_bool.ravel()
+    seed_flat = seed_widths.ravel()
 
     out = np.full(mask_bool.shape, np.nan)
-    for label in np.unique(reg_arr[(reg_arr > 0) & mask_bool]):
-        region = (reg_arr == label) & mask_bool
-        region_cl = cl_bool & region
-        if not region_cl.any():
+    out_flat = out.ravel()
+    for _, idx in region_groups(reg_arr, mask_bool):
+        is_seed = cl_flat[idx]
+        if not is_seed.any():
             continue  # filled by fallback below
-        result = interp(region_cl, region, seed_widths)
-        out[region] = result[region]
+        seed_vals = seed_flat[idx]
+        if method == "laplace":
+            out_flat[idx] = _laplace(idx, is_seed, seed_vals, mask_bool.shape)
+        else:
+            out_flat[idx] = _nearest_flat(idx, is_seed, seed_vals, mask_bool.shape)
 
     leftover = mask_bool & np.isnan(out)
     if leftover.any():
@@ -91,7 +128,7 @@ def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
             "centerline pixels (or outside any region); filled by nearest "
             "centerline width"
         )
-        fallback = _nearest(cl_bool, mask_bool, seed_widths)
+        fallback = _nearest(cl_bool, seed_widths)
         out[leftover] = fallback[leftover]
 
     out = np.where(mask_bool, out, np.nan)
@@ -104,68 +141,115 @@ def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
     return out
 
 
-def _nearest(cl_bool, mask_bool, seed_widths):
+def _neighbours(qidx, idx, dy, dx, shape):
+    # Membership test for one stencil offset: for each query pixel qidx[i], does
+    # its neighbour at (dy, dx) belong to the sorted set `idx`? Works purely on
+    # flat indices, so nothing the size of the grid (or even of the region's
+    # bounding box) is allocated. Returns (has, pos) with idx[pos[i]] the
+    # neighbour wherever has[i]. The explicit column check is what stops a
+    # dx = -1 step at column 0 from wrapping onto the previous row.
+    h, w = shape
+    rows, cols = np.divmod(qidx, w)
+    nr, nc = rows + dy, cols + dx
+    ok = (nr >= 0) & (nr < h) & (nc >= 0) & (nc < w)
+    nflat = qidx + (dy * w + dx)
+    pos = np.searchsorted(idx, nflat)
+    np.clip(pos, 0, idx.size - 1, out=pos)
+    return ok & (idx[pos] == nflat), pos
+
+
+def _nearest(cl_bool, seed_widths):
+    # Whole-grid nearest-centerline assignment (used by widths() and as the
+    # region_widths fallback); the EDT is linear in grid size.
     _, idx = distance_transform_edt(~cl_bool, return_indices=True)
     return seed_widths[idx[0], idx[1]]
 
 
-def _laplace(cl_bool, mask_bool, seed_widths):
-    n = int(mask_bool.sum())
-    idx_map = np.full(mask_bool.shape, -1, dtype=np.int64)
-    idx_map[mask_bool] = np.arange(n)
+def _nearest_flat(idx, is_seed, seed_vals, shape):
+    # Same rule restricted to one region's seeds. A KD-tree over the region's
+    # centerline pixels costs O(region size); an EDT here would cost O(grid).
+    w = shape[1]
+    seed_rc = np.column_stack(np.divmod(idx[is_seed], w))
+    all_rc = np.column_stack(np.divmod(idx, w))
+    _, nn = cKDTree(seed_rc).query(all_rc, k=1)
+    return seed_vals[is_seed][nn]
 
-    yy, xx = np.nonzero(mask_bool)
-    ids = idx_map[yy, xx]
-    is_seed = cl_bool[yy, xx]
+
+def _laplace(idx, is_seed, seed_vals, shape):
+    # Laplace interpolation over the pixel set `idx` (sorted flat indices) with
+    # Dirichlet BCs at the seeds. The seed rows are eliminated rather than
+    # carried as identity rows, so the system solved is
+    #
+    #     (D - W_ff) x_f = W_fs s
+    #
+    # over the free pixels only: symmetric, diagonally dominant, positive
+    # definite — which is what cg actually requires, and smaller besides.
+    free = ~is_seed
+    n_free = int(free.sum())
+    out = seed_vals.copy()
+    if n_free == 0:
+        return out
+
+    fidx = idx[free]
+    fpos = np.cumsum(free) - 1  # position in `idx` -> row in the free system
+    local = np.arange(n_free)
 
     rows, cols, data = [], [], []
-    b = np.zeros(n)
+    diag = np.zeros(n_free)
+    b = np.zeros(n_free)
+    touches_seed = np.zeros(n_free, dtype=bool)
+    for dy, dx, wt in _OFFSETS:
+        has, pos = _neighbours(fidx, idx, dy, dx, shape)
+        p = pos[has]
+        diag[has] += wt
+        nbr_seed = is_seed[p]
+        rows.append(local[has][~nbr_seed])
+        cols.append(fpos[p[~nbr_seed]])
+        data.append(np.full(int((~nbr_seed).sum()), -wt))
+        # each free pixel meets a given offset at most once, but summing over
+        # the eight offsets still accumulates, so go through bincount
+        b += np.bincount(
+            local[has][nbr_seed],
+            weights=wt * seed_vals[p[nbr_seed]],
+            minlength=n_free,
+        )
+        touches_seed[local[has][nbr_seed]] = True
 
-    # Dirichlet BCs at centerline pixels
-    seed_ids = ids[is_seed]
-    rows.append(seed_ids)
-    cols.append(seed_ids)
-    data.append(np.ones(len(seed_ids)))
-    b[seed_ids] = seed_widths[yy[is_seed], xx[is_seed]]
-
-    # 8-connected Laplace stencil elsewhere (diagonals weighted 1/sqrt(2) for
-    # isotropy; also prevents isolating pixels only connected diagonally)
-    fy, fx, fids = yy[~is_seed], xx[~is_seed], ids[~is_seed]
-    weight_sum = np.zeros(len(fids))
-    offsets = [
-        (-1, 0, 1.0),
-        (1, 0, 1.0),
-        (0, -1, 1.0),
-        (0, 1, 1.0),
-        (-1, -1, 1 / SQRT2),
-        (-1, 1, 1 / SQRT2),
-        (1, -1, 1 / SQRT2),
-        (1, 1, 1 / SQRT2),
-    ]
-    h, w = mask_bool.shape
-    for dy, dx, wt in offsets:
-        ny, nx = fy + dy, fx + dx
-        ok = (ny >= 0) & (ny < h) & (nx >= 0) & (nx < w)
-        has = np.zeros(len(fids), dtype=bool)
-        has[ok] = mask_bool[ny[ok], nx[ok]]
-        rows.append(fids[has])
-        cols.append(idx_map[ny[has], nx[has]])
-        data.append(np.full(int(has.sum()), wt))
-        weight_sum[has] += wt
-
-    rows.append(fids)
-    cols.append(fids)
-    data.append(-weight_sum)
+    rows.append(local)
+    cols.append(local)
+    data.append(diag)
 
     A = csr_matrix(
         (np.concatenate(data), (np.concatenate(rows), np.concatenate(cols))),
-        shape=(n, n),
+        shape=(n_free, n_free),
     )
-    x0 = seed_widths[yy, xx]
-    x, info = cg(A, b, x0=x0, rtol=1e-4)
+
+    x = _solve(A, b)
+
+    # A pixel set can fall apart into chunks that no seed touches (a region
+    # split by a junction, an island). Such a chunk is a singular Neumann block
+    # with a zero rhs, and because A is block diagonal cg leaves it at exactly
+    # 0.0 -- so the solver silently reports width 0 there. Exact zero is also
+    # the only way a *seeded* block can land on 0 (the maximum principle bounds
+    # it below by its smallest seed width), which makes it a cheap filter;
+    # confirm against the connectivity, then hand the chunk back as NaN for the
+    # caller to fill by fallback.
+    if (x == 0.0).any():
+        n_comp, comp = connected_components(A, directed=False)
+        seeded = np.zeros(n_comp, dtype=bool)
+        seeded[comp[touches_seed]] = True
+        x[~seeded[comp]] = np.nan
+
+    out[free] = x
+    return out
+
+
+def _solve(A, b):
+    # rtol bounds the residual, not the error, and the two diverge as a region
+    # grows (A's smallest eigenvalue shrinks): at rtol=1e-4 a 340k-pixel region
+    # lands ~1-2 width units off the exact solution. 1e-6 costs ~40% more
+    # iterations and pulls that back to ~0.03.
+    x, info = cg(A, b, rtol=1e-6)
     if info != 0:
         warnings.warn("conjugate gradient solver did not converge")
-
-    out = np.zeros(mask_bool.shape)
-    out[mask_bool] = x
-    return out
+    return x

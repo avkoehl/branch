@@ -4,7 +4,8 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 from skimage.segmentation import watershed
 
-from ._io import unwrap, wrap, edt_field
+from ._io import unwrap, wrap, edt_field, region_groups
+from .centerline import Network
 
 SQRT2 = np.sqrt(2.0)
 # forward-only neighbour offsets; directed=False makes each bidirectional
@@ -137,6 +138,59 @@ def voronoi(mask, seeds):
         markers=markers,
         mask=mask_bool,
     ).astype(np.uint32)
+    return wrap(out, meta)
+
+
+def subdivide(regions, network: Network):
+    # Subdivide each path's territory (from allocate) into segment-level
+    # territories. Each territory is seeded only by its own path's segments,
+    # so neighboring paths' labels (e.g. shared junction pixels) never bleed
+    # across boundaries. Pixels in territories whose path has no segments in
+    # the table remain 0.
+    reg_arr, _, meta = unwrap(regions)
+    if reg_arr.shape != network.shape:
+        raise ValueError(
+            f"regions shape {reg_arr.shape} does not match network grid {network.shape}"
+        )
+
+    # Group the territories once, then work each path inside its own bounding
+    # box. Everything below is local: a full-grid pass per path would cost the
+    # whole raster ~once per path, and voronoi() runs a distance transform and
+    # a watershed, so that is the expensive kind of pass. Cropping is exact
+    # here -- the distance transform measures to the nearest seed and every one
+    # of this path's seeds is inside its own bbox, and the watershed only ever
+    # floods within the territory.
+    territories = dict(region_groups(reg_arr))
+
+    out = np.zeros(network.shape, dtype=np.uint32)
+    _, w = network.shape
+    for path_id, group in network.segments.groupby("path_id"):
+        idx = territories.get(int(path_id))
+        if idx is None:
+            continue  # path swallowed during allocation
+        rows, cols = np.divmod(idx, w)
+        r0, r1 = int(rows.min()), int(rows.max()) + 1
+        c0, c1 = int(cols.min()), int(cols.max()) + 1
+
+        territory = np.zeros((r1 - r0, c1 - c0), dtype=np.uint8)
+        territory[rows - r0, cols - c0] = 1
+
+        seeds = np.zeros(territory.shape, dtype=np.uint32)
+        for _, row in group.iterrows():
+            rc = np.asarray(row["pixels"])
+            inside = (
+                (rc[:, 0] >= r0) & (rc[:, 0] < r1) & (rc[:, 1] >= c0) & (rc[:, 1] < c1)
+            )
+            rc = rc[inside]
+            seeds[rc[:, 0] - r0, rc[:, 1] - c0] = row["segment_id"]
+        seeds = np.where(territory == 1, seeds, 0)
+        if not (seeds > 0).any():
+            continue
+
+        sub = np.asarray(voronoi(territory, seeds))
+        hit = sub > 0
+        out[r0:r1, c0:c1][hit] = sub[hit]
+
     return wrap(out, meta)
 
 

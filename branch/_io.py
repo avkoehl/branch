@@ -54,6 +54,30 @@ def wrap(values, meta):
     return out
 
 
+def region_groups(label_arr, mask_bool=None):
+    """Group a labeled raster's pixels by label, in one pass.
+
+    Yields ``(label, flat_idx)`` per positive label, ascending, where
+    ``flat_idx`` indexes the raveled grid; ``mask_bool`` optionally restricts
+    which pixels count. This replaces the ``label_arr == label`` scan a
+    per-region loop would otherwise do, which costs the whole grid once per
+    region. The sort is stable, so each group's indices come out ascending --
+    callers rely on that for ``searchsorted`` neighbour lookups and for
+    reading off a bounding box.
+    """
+    positive = label_arr > 0
+    flat = np.flatnonzero(positive if mask_bool is None else positive & mask_bool)
+    if flat.size == 0:
+        return
+    labels = label_arr.ravel()[flat]
+    order = np.argsort(labels, kind="stable")
+    flat = flat[order]
+    labels = labels[order]
+    starts = np.flatnonzero(np.r_[True, labels[1:] != labels[:-1]])
+    for lo, hi in zip(starts, np.append(starts[1:], flat.size)):
+        yield int(labels[lo]), flat[lo:hi]
+
+
 def edt_field(mask_bool, open_boundary):
     """Foreground array for the local-half-width distance transform.
 

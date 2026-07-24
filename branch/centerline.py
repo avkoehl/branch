@@ -26,25 +26,44 @@ class Network:
     _meta: GridMeta | None = field(default=None, repr=False)
 
     def rasterize(self, by=None):
+        if by is not None and by not in ("path", "segment"):
+            raise ValueError(f"by must be None, 'path', or 'segment', got {by!r}")
+
+        flat, counts = self._pixel_index()
         if by is None:
             arr = np.zeros(self.shape, dtype=np.uint8)
-            for pixels in self.segments["pixels"]:
-                rc = np.asarray(pixels)
-                arr[rc[:, 0], rc[:, 1]] = 1
+            arr.ravel()[flat] = 1
             return wrap(arr, self._meta)
 
-        if by not in ("path", "segment"):
-            raise ValueError(f"by must be None, 'path', or 'segment', got {by!r}")
         column = "path_id" if by == "path" else "segment_id"
+        values = np.repeat(self.segments[column].to_numpy(), counts)
+
+        # A junction pixel belongs to several segments, so the writes collide.
+        # The old loop wrote paths in descending path_id and let later writes
+        # win, which means: lowest path_id takes the pixel (so the mainstem,
+        # path_id == 1, wins), and within one path the later row in `segments`
+        # takes it. Reproduce that by sorting the collisions together and
+        # keeping one winner each, rather than replaying the writes in order --
+        # same answer, and no O(paths^2) regrouping to get there.
+        path_ids = np.repeat(self.segments["path_id"].to_numpy(), counts)
+        seq = np.repeat(np.arange(len(self.segments)), counts)
+        order = np.lexsort((-seq, path_ids, flat))  # last key sorts first
+        winner = order[np.flatnonzero(
+            np.r_[True, flat[order][1:] != flat[order][:-1]]
+        )]
 
         arr = np.zeros(self.shape, dtype=np.uint32)
-        # write descending path_id so the mainstem (path_id == 1) wins at junctions
-        for path_id in sorted(self.segments["path_id"].unique(), reverse=True):
-            group = self.segments[self.segments["path_id"] == path_id]
-            for _, row in group.iterrows():
-                rc = np.asarray(row["pixels"])
-                arr[rc[:, 0], rc[:, 1]] = int(row[column])
+        arr.ravel()[flat[winner]] = values[winner]
         return wrap(arr, self._meta)
+
+    def _pixel_index(self):
+        # Flat indices of every segment's pixels, concatenated in `segments`
+        # row order, plus each segment's pixel count so the per-segment columns
+        # can be np.repeat'd out to match.
+        pixels = [np.asarray(p).reshape(-1, 2) for p in self.segments["pixels"]]
+        counts = np.fromiter((len(p) for p in pixels), np.intp, len(pixels))
+        rc = np.concatenate(pixels) if pixels else np.empty((0, 2), np.intp)
+        return rc[:, 0].astype(np.intp) * self.shape[1] + rc[:, 1], counts
 
     def to_gdf(self):
         if self._meta is None or self._meta.transform is None:

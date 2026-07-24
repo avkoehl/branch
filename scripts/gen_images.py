@@ -14,7 +14,7 @@ sys.path.insert(0, str(REPO))
 import branch
 from branch.data import load
 
-OUT = REPO / "docs" / "images"
+OUT = REPO / "assets"
 OUT.mkdir(parents=True, exist_ok=True)
 
 
@@ -95,27 +95,38 @@ with warnings.catch_warnings():
     rw_near = branch.region_widths(mask, net.rasterize(), regions, method="nearest")
 
 
-# shared discrete log-spaced bins (1-2-5 sequence) across every width image
-def log_bins(vmin, vmax):
-    edges, k = [], int(np.floor(np.log10(max(vmin, 1e-12))))
-    while not edges or edges[-1] < vmax:
-        for m in (1, 2, 5):
-            edges.append(m * 10.0**k)
-        k += 1
-    lo = max(i for i, e in enumerate(edges) if e <= vmin) if edges[0] <= vmin else 0
-    edges = [e for e in edges[lo:] if e / 1.0001 <= vmax]
-    while len(edges) > 9:  # coarsen: drop the 2s, then fall back to decades
-        edges = [e for e in edges if not str(e).lstrip("0.").startswith("2")]
-        if len(edges) > 9:
-            edges = [e for e in edges if str(e).lstrip("0.").startswith("1")]
+# Shared discrete log-spaced bins across every width image. Widths span more than
+# a decade, so the ladder is logarithmic and made of preferred numbers to keep
+# the legend readable. Try the finest ladder first and fall back to coarser ones
+# until the count fits -- a 1-2-5 ladder alone gives only ~4 bands over this
+# range, which flattens the whole map into two colours.
+def log_bins(vmin, vmax, target=12):
+    ladders = [
+        (1, 1.25, 1.6, 2, 2.5, 3.15, 4, 5, 6.3, 8),  # ~10 per decade
+        (1, 1.5, 2, 3, 5, 7),  # ~6 per decade
+        (1, 2, 5),
+        (1,),  # decades
+    ]
+    for ladder in ladders:
+        edges, k = [], int(np.floor(np.log10(max(vmin, 1e-12))))
+        while not edges or edges[-1] < vmax:
+            edges += [mult * 10.0**k for mult in ladder]
+            k += 1
+        lo = max((i for i, e in enumerate(edges) if e <= vmin), default=0)
+        edges = [e for e in edges[lo:] if e / 1.0001 <= vmax]
+        if len(edges) <= target:
+            break
     return edges
 
 
 allw = np.concatenate([values(a).ravel() for a in (w_lap, w_near, rw_lap, rw_near)])
 finite = allw[np.isfinite(allw) & (allw > 0)]
 BINS = log_bins(float(finite.min()), float(finite.max()))
-CMAP = plt.get_cmap("cividis", len(BINS))
+# sequential magnitude -> a perceptually uniform ramp, dark (narrow) to bright
+# (wide); viridis stays legible against the white page at both ends
+CMAP = plt.get_cmap("viridis", len(BINS))
 NORM = mcolors.BoundaryNorm(BINS, ncolors=len(BINS), extend="max")
+print(f"width bins ({len(BINS)}): {BINS}")
 
 # -- graphical abstract ----------------------------------------------------------
 
@@ -149,54 +160,73 @@ save_labels("allocate.png", regions, net=net, centerline=True)
 save_labels("voronoi.png", regions_vor, net=net, centerline=True)
 save_labels("subdivide.png", seg_regions, net=net, centerline=True)
 
-# 2x2 matrix: interpolator (columns) x domain (rows), one shared colorbar
-fig, axes = plt.subplots(2, 2, figsize=(14, 13))
-panels = [
-    (axes[0, 0], w_lap, 'widths(..., method="laplace")'),
-    (axes[0, 1], w_near, 'widths(..., method="nearest")'),
-    (axes[1, 0], rw_lap, 'region_widths(..., method="laplace")'),
-    (axes[1, 1], rw_near, 'region_widths(..., method="nearest")'),
-]
-for ax, arr, title in panels:
-    im = draw_float(ax, values(arr), NORM, cmap=CMAP, colorbar=False)
+def save_with_colorbar(name, fig, axes):
+    # figure-level colorbar; savefig directly because tight_layout() cannot lay
+    # one out and leaves the tick labels sitting on top of the last panel
+    fig.colorbar(
+        plt.cm.ScalarMappable(norm=NORM, cmap=CMAP),
+        ax=axes, fraction=0.03, pad=0.04, label="width", extend="max",
+    )
+    fig.savefig(OUT / name, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {name}")
+
+
+# domain: whole shape vs per-region, both with the default laplace interpolator
+fig, axes = plt.subplots(1, 2, figsize=(13, 6.5))
+for ax, arr, title in [
+    (axes[0], w_lap, "widths(...)"),
+    (axes[1], rw_lap, "region_widths(..., regions)"),
+]:
+    draw_float(ax, values(arr), NORM, cmap=CMAP, colorbar=False)
     ax.set_title(title, fontfamily="monospace", fontsize=11)
-fig.colorbar(im, ax=axes, fraction=0.03, pad=0.02, label="width", extend="max")
-fig.savefig(OUT / "widths_matrix.png", dpi=150, bbox_inches="tight")
-plt.close(fig)
-print("saved widths_matrix.png")
+save_with_colorbar("widths_domain.png", fig, axes)
+
+# interpolator: nearest instead of laplace
+fig, ax = plt.subplots(figsize=(7, 6.5))
+draw_float(ax, values(w_near), NORM, cmap=CMAP, colorbar=False)
+ax.set_title('widths(..., method="nearest")', fontfamily="monospace", fontsize=11)
+save_with_colorbar("widths_nearest.png", fig, ax)
 
 # -- open_boundary: a boundary the shape is truncated by, not a real wall --------
-# Mark the void just past the outlet (root side) as open. Half-widths there are
-# then measured to the true flanking walls instead of collapsing at the cut edge,
-# so the mainstem keeps its width down to the outlet (visible in the widths row).
-rr = np.arange(mask_arr.shape[0])[:, None]
-cc = np.arange(mask_arr.shape[1])[None, :]
-open_boundary = (~mask_arr) & (rr >= root[0] - 10) & (cc <= root[1] + 35)
+# Mark the void past the outlet as open, so half-widths there are measured to the
+# true flanking walls instead of collapsing at the cut edge. It has to be a region
+# with depth, not a thin rind along the boundary: distances are measured *through*
+# the marked void, so a one-pixel skin would just move the wall out by one pixel.
+# The right edge stops at root + 20 -- far enough to cover the whole outlet cut,
+# near enough not to also unwall the separate stretch of bank beyond it.
+rr, cc = np.ogrid[: mask_arr.shape[0], : mask_arr.shape[1]]
+open_boundary = (~mask_arr) & (rr >= root[0] - 10) & (cc <= root[1] + 20)
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    res_open = branch.analyze(mask, root, tips=tips, open_boundary=open_boundary)
+    net_open = branch.extract(mask, root, tips=tips, open_boundary=open_boundary)
+    regions_open = branch.allocate(
+        mask, net_open.rasterize(by="path"), open_boundary=open_boundary
+    )
+    rw_open = branch.region_widths(
+        mask, net_open.rasterize(), regions_open, open_boundary=open_boundary
+    )
 
-fig, axes = plt.subplots(2, 2, figsize=(13, 12))
-panels = [
-    (axes[0, 0], "labels", regions, "regions"),
-    (axes[0, 1], "labels", res_open.regions, "regions, open_boundary=…"),
-    (axes[1, 0], "float", rw_lap, "widths"),
-    (axes[1, 1], "float", res_open.widths, "widths, open_boundary=…"),
-]
-for ax, kind, arr, title in panels:
-    if kind == "labels":
-        mapped, cmap, n = label_cmap(values(arr))
-        ax.imshow(mask_arr, cmap="gray_r", alpha=0.25)
-        ax.imshow(mapped, cmap=cmap, vmin=0, vmax=max(n - 1, 1), interpolation="nearest")
-    else:
-        draw_float(ax, values(arr), NORM, cmap=CMAP, colorbar=False)
-    ax.contour(open_boundary.astype(int), levels=[0.5], colors="red", linewidths=0.9)
-    ax.plot(root[1], root[0], "k*", markersize=12, mec="w")
+# Only the widths are worth showing: the partition is visually identical either
+# way on this shape (the skeleton and tip->root routing do not depend on the
+# boundary convention at all).
+moved = int((values(regions) != values(regions_open)).sum())
+print(f"pixels whose path changes under open_boundary: {moved} of {int(mask_arr.sum())}")
+
+fig, axes = plt.subplots(1, 2, figsize=(13, 6.5))
+for ax, arr, title, mark in [
+    (axes[0], rw_lap, "region_widths(...)", False),
+    (axes[1], rw_open, "region_widths(..., open_boundary=…)", True),
+]:
+    draw_float(ax, values(arr), NORM, cmap=CMAP, colorbar=False)
+    if mark:
+        # fill it rather than outline it -- a contour of the patch reads as a
+        # stray circle drawn over blank page, when the point is the area itself
+        ax.imshow(
+            np.ma.masked_where(~open_boundary, open_boundary.astype(float)),
+            cmap=mcolors.ListedColormap(["red"]), alpha=0.35, interpolation="nearest",
+        )
     ax.set_title(title, fontfamily="monospace", fontsize=11)
     ax.set_axis_off()
-fig.colorbar(
-    plt.cm.ScalarMappable(norm=NORM, cmap=CMAP),
-    ax=axes[1, :], fraction=0.03, pad=0.02, label="width", extend="max",
-)
-save("open_boundary.png", fig)
+save_with_colorbar("open_boundary.png", fig, axes)
