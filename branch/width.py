@@ -79,7 +79,7 @@ def widths(mask, centerline, method="laplace", pixel_size=None, open_boundary=No
 
 
 def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
-                  open_boundary=None):
+                  open_boundary=None, progress=None):
     # Like widths(), but interpolated independently within each labeled
     # region (e.g. the output of branch.allocate), so widths do not diffuse
     # across path boundaries at junctions. Each region is seeded only by the
@@ -90,6 +90,12 @@ def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
     # Regions are solved from their own flat pixel indices (grouped once, up
     # front) rather than by re-scanning the full grid per label, so the cost is
     # O(mask area) in total instead of O(mask area x number of regions).
+    #
+    # `progress`, if given, is called once per region just before that region is
+    # solved: progress(i, n_regions, label, region_pixel_count). Regions are very
+    # uneven and the laplace solve costs ~O(n^1.5) in a region's pixel count, so
+    # drive a bar off that count -- counting regions makes it race to ~99% and
+    # then sit on the few big ones for most of the wall time.
     if method not in ("laplace", "nearest"):
         raise ValueError(f"method must be 'laplace' or 'nearest', got {method!r}")
 
@@ -111,7 +117,10 @@ def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
 
     out = np.full(mask_bool.shape, np.nan)
     out_flat = out.ravel()
-    for _, idx in region_groups(reg_arr, mask_bool):
+    groups = list(region_groups(reg_arr, mask_bool))  # views, so the total is free
+    for i, (label, idx) in enumerate(groups):
+        if progress is not None:
+            progress(i, len(groups), label, idx.size)
         is_seed = cl_flat[idx]
         if not is_seed.any():
             continue  # filled by fallback below

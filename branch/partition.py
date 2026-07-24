@@ -12,7 +12,7 @@ SQRT2 = np.sqrt(2.0)
 _EDGES = [(0, 1, 1.0), (1, 0, 1.0), (1, 1, SQRT2), (1, -1, SQRT2)]
 
 
-def allocate(mask, seeds, open_boundary=None):
+def allocate(mask, seeds, open_boundary=None, progress=None):
     # Ordered, radius-limited claiming. Each path (seed label) claims the mask
     # pixels within *some* of its seeds' local half-width, measured as a
     # boundary-respecting (geodesic) distance -- so a wide-but-farther seed can
@@ -25,6 +25,13 @@ def allocate(mask, seeds, open_boundary=None):
     # Each path's claim is a windowed, radius-bounded Dijkstra (see _reach), so
     # cost is O(tube area) per path rather than O(domain); the mask never
     # changes during the loop, so there is no per-step graph rebuild.
+    #
+    # `progress`, if given, is called once per path just before its Dijkstra:
+    # progress(i, n_paths, label, window_pixel_count). The window area is the
+    # honest cost proxy -- a path's seed count is its *length*, which says little
+    # about the tube it will claim. Paths run biggest-first, so the early ones are
+    # by far the slowest; a bar weighted by window area tracks that, one counting
+    # paths does not.
     mask_arr, _, meta = unwrap(mask)
     seed_arr, _, _ = unwrap(seeds)
     mask_bool = mask_arr == 1
@@ -57,6 +64,11 @@ def allocate(mask, seeds, open_boundary=None):
         pad = int(np.ceil(R)) + 1
         r0, r1 = max(int(rr.min()) - pad, 0), min(int(rr.max()) + pad + 1, H)
         c0, c1 = max(int(cc.min()) - pad, 0), min(int(cc.max()) + pad + 1, W)
+
+        # reported here, not at the top of the loop: the window is the first
+        # point where this path's cost is actually known
+        if progress is not None:
+            progress(i, len(uniq), int(label), (r1 - r0) * (c1 - c0))
 
         seed_local = np.stack([rr - r0, cc - c0], axis=1)
         tube = _reach(mask_bool[r0:r1, c0:c1], seed_local, rad, R)
