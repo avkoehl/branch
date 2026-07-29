@@ -6,7 +6,7 @@ tips, `branch` extracts a topology-aware centerline network, decomposes it into
 hierarchically ordered paths, allocates every pixel of the shape to its path,
 and estimates local width everywhere.
 
-![graphical abstract](assets/abstract.png)
+![graphical abstract](https://raw.githubusercontent.com/avkoehl/branch/main/assets/abstract.png)
 
 ## Install
 
@@ -57,7 +57,7 @@ Skeletonizes the mask, routes from each tip to the root (pruning everything else
 and decomposes the network into ordered paths — `path_id == 1` is the mainstem.
 
 
-![extract with tips](assets/extract_tips.png)
+![extract with tips](https://raw.githubusercontent.com/avkoehl/branch/main/assets/extract_tips.png)
 
 ```python
 net = branch.extract(mask, root)
@@ -65,7 +65,7 @@ net = branch.extract(mask, root)
 
 Without tips, every skeleton endpoint becomes a tip.
 
-![extract auto tips](assets/extract_auto.png)
+![extract auto tips](https://raw.githubusercontent.com/avkoehl/branch/main/assets/extract_auto.png)
 
 Tips and root can often be derived automatically — glacier branch tips
 [Kienholz et al.,
@@ -83,7 +83,7 @@ regions = branch.allocate(mask, net.rasterize(by="path"))
 Assigns every pixel to a path: paths claim territory in priority order, each limited
 by the local shape radius, so wide branches claim proportionally more space at junctions.
 
-![allocate](assets/allocate.png)
+![allocate](https://raw.githubusercontent.com/avkoehl/branch/main/assets/allocate.png)
 
 ```python
 regions = branch.voronoi(mask, net.rasterize(by="path"))
@@ -91,7 +91,7 @@ regions = branch.voronoi(mask, net.rasterize(by="path"))
 
 Nearest-centerline partition — no ordering, no radius limits.
 
-![voronoi](assets/voronoi.png)
+![voronoi](https://raw.githubusercontent.com/avkoehl/branch/main/assets/voronoi.png)
 
 ```python
 seg_regions = branch.subdivide(regions, net)
@@ -100,7 +100,7 @@ seg_regions = branch.subdivide(regions, net)
 Subdivides each path's territory further: within a territory, every pixel goes to
 its nearest centerline segment of that same path.
 
-![subdivide](assets/subdivide.png)
+![subdivide](https://raw.githubusercontent.com/avkoehl/branch/main/assets/subdivide.png)
 
 ### Widths
 
@@ -114,7 +114,7 @@ w = branch.widths(mask, net.rasterize())
 w = branch.region_widths(mask, net.rasterize(), regions)
 ```
 
-![widths domain](assets/widths_domain.png)
+![widths domain](https://raw.githubusercontent.com/avkoehl/branch/main/assets/widths_domain.png)
 
 Either call also takes `method="nearest"`, which gives each pixel the width of its
 nearest centerline pixel instead of diffusing smoothly from it — piecewise
@@ -124,7 +124,7 @@ constant, and much faster:
 w = branch.widths(mask, net.rasterize(), method="nearest")
 ```
 
-![widths nearest](assets/widths_nearest.png)
+![widths nearest](https://raw.githubusercontent.com/avkoehl/branch/main/assets/widths_nearest.png)
 
 ## Open boundaries
 
@@ -155,6 +155,6 @@ Mark a region with depth rather than a thin skin along the boundary: distances a
 measured *through* the open void, so a one-pixel rind would only push the wall out
 by one pixel. 
 
-![open boundary](assets/open_boundary.png)
+![open boundary](https://raw.githubusercontent.com/avkoehl/branch/main/assets/open_boundary.png)
 
 Only the widths are shown because on this shape the partitioning didn't change.

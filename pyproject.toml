@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "branchmetrics"
-version = "1.0.1"
+version = "1.0.2"
 description = "Segment and measure binary branching shapes: centerline extraction, hierarchical space partitioning, and width interpolation"
 keywords = [
     "centerline",
