@@ -40,7 +40,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "matplotlib",
-    "snakeviz"
 ]
 
 [tool.hatch.build.targets.wheel]
