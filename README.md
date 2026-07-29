@@ -11,7 +11,7 @@ and estimates local width everywhere.
 ## Install
 
 ```bash
-pip install git+https://github.com/avkoehl/branch.git
+pip install branchmetrics
 ```
 
 Development (clone, then sync with dev extras):
