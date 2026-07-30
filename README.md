@@ -14,6 +14,9 @@ and estimates local width everywhere.
 pip install branchmetrics
 ```
 
+> **Note:** `branchmetrics` is the PyPI distribution name; the import package name is
+> `branch`, i.e. `import branch`.
+
 Development (clone, then sync with dev extras):
 
 ```bash
