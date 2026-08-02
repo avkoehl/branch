@@ -29,42 +29,6 @@ wheels = [
 ]
 
 [[package]]
-name = "branchmetrics"
-version = "1.0.1"
-source = { editable = "." }
-dependencies = [
-    { name = "geopandas" },
-    { name = "networkx" },
-    { name = "numpy" },
-    { name = "rasterio" },
-    { name = "rioxarray" },
-    { name = "scikit-image" },
-    { name = "scipy" },
-    { name = "shapely" },
-    { name = "xarray" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "matplotlib" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "geopandas" },
-    { name = "matplotlib", marker = "extra == 'dev'" },
-    { name = "networkx" },
-    { name = "numpy" },
-    { name = "rasterio" },
-    { name = "rioxarray" },
-    { name = "scikit-image" },
-    { name = "scipy" },
-    { name = "shapely" },
-    { name = "xarray" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "certifi"
 version = "2026.2.25"
 source = { registry = "https://pypi.org/simple" }
@@ -725,6 +689,42 @@ sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
 ]
+
+[[package]]
+name = "ramify"
+version = "1.0.2"
+source = { editable = "." }
+dependencies = [
+    { name = "geopandas" },
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "rasterio" },
+    { name = "rioxarray" },
+    { name = "scikit-image" },
+    { name = "scipy" },
+    { name = "shapely" },
+    { name = "xarray" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "matplotlib" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "geopandas" },
+    { name = "matplotlib", marker = "extra == 'dev'" },
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "rasterio" },
+    { name = "rioxarray" },
+    { name = "scikit-image" },
+    { name = "scipy" },
+    { name = "shapely" },
+    { name = "xarray" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "rasterio"

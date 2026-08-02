@@ -1,4 +1,4 @@
-"""Progress reporting for long `branch` runs.
+"""Progress reporting for long `ramify` runs.
 
 `allocate` and `region_widths` both take an optional `progress=` callback, fired
 once per path / per region just before that item is worked. This script is the
@@ -18,8 +18,8 @@ from scipy.spatial import cKDTree
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
-import branch
-from branch.data import load
+import ramify
+from ramify.data import load
 
 
 def region_reporter(regions, mask, exponent=1.5, every=1.0, width=34):
@@ -111,14 +111,14 @@ if __name__ == "__main__":
 
     print("extract  (no progress hook -- one opaque skeletonize dominates)")
     t = time.monotonic()
-    net = branch.extract(big, root, tips=tips)
+    net = ramify.extract(big, root, tips=tips)
     print(f"  {len(net.segments)} segments in {time.monotonic() - t:.1f}s")
 
     print("allocate")
-    regions = branch.allocate(big, net.rasterize(by="path"), progress=path_reporter())
+    regions = ramify.allocate(big, net.rasterize(by="path"), progress=path_reporter())
 
     print("region_widths")
-    w = branch.region_widths(
+    w = ramify.region_widths(
         big, net.rasterize(), regions, progress=region_reporter(regions, big)
     )
     print(f"  widths {np.nanmin(w):.1f} .. {np.nanmax(w):.1f}")

@@ -11,8 +11,8 @@ import matplotlib.colors as mcolors
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
-import branch
-from branch.data import load
+import ramify
+from ramify.data import load
 
 OUT = REPO / "assets"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -82,17 +82,17 @@ mask, root, tips = load()
 mask_arr = values(mask) == 1
 print(f"mask: {mask_arr.shape}, root: {root}, tips: {len(tips)}")
 
-net = branch.extract(mask, root=root, tips=tips)
-net_auto = branch.extract(mask, root=root)
-regions = branch.allocate(mask, net.rasterize(by="path"))
-regions_vor = branch.voronoi(mask, net.rasterize(by="path"))
-seg_regions = branch.subdivide(regions, net)
-w_lap = branch.widths(mask, net.rasterize(), method="laplace")
-w_near = branch.widths(mask, net.rasterize(), method="nearest")
+net = ramify.extract(mask, root=root, tips=tips)
+net_auto = ramify.extract(mask, root=root)
+regions = ramify.allocate(mask, net.rasterize(by="path"))
+regions_vor = ramify.voronoi(mask, net.rasterize(by="path"))
+seg_regions = ramify.subdivide(regions, net)
+w_lap = ramify.widths(mask, net.rasterize(), method="laplace")
+w_near = ramify.widths(mask, net.rasterize(), method="nearest")
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    rw_lap = branch.region_widths(mask, net.rasterize(), regions, method="laplace")
-    rw_near = branch.region_widths(mask, net.rasterize(), regions, method="nearest")
+    rw_lap = ramify.region_widths(mask, net.rasterize(), regions, method="laplace")
+    rw_near = ramify.region_widths(mask, net.rasterize(), regions, method="nearest")
 
 
 # Shared discrete log-spaced bins across every width image. Widths span more than
@@ -200,11 +200,11 @@ open_boundary = (~mask_arr) & (rr >= root[0] - 10) & (cc <= root[1] + 20)
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    net_open = branch.extract(mask, root, tips=tips, open_boundary=open_boundary)
-    regions_open = branch.allocate(
+    net_open = ramify.extract(mask, root, tips=tips, open_boundary=open_boundary)
+    regions_open = ramify.allocate(
         mask, net_open.rasterize(by="path"), open_boundary=open_boundary
     )
-    rw_open = branch.region_widths(
+    rw_open = ramify.region_widths(
         mask, net_open.rasterize(), regions_open, open_boundary=open_boundary
     )
 

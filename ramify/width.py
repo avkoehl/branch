@@ -30,7 +30,7 @@ def widths(mask, centerline, method="laplace", pixel_size=None, open_boundary=No
     # method="laplace": smooth diffusion (Laplace equation, Dirichlet BCs at
     #   the centerline) — continuous fields, best for downstream analysis.
     # method="nearest": each pixel takes the width of its nearest centerline
-    #   pixel (a Voronoi-style assignment, cf. branch.voronoi) — piecewise
+    #   pixel (a Voronoi-style assignment, cf. ramify.voronoi) — piecewise
     #   constant, fast, exact at the centerline.
     if method not in ("laplace", "nearest"):
         raise ValueError(f"method must be 'laplace' or 'nearest', got {method!r}")
@@ -81,7 +81,7 @@ def widths(mask, centerline, method="laplace", pixel_size=None, open_boundary=No
 def region_widths(mask, centerline, regions, method="laplace", pixel_size=None,
                   open_boundary=None, progress=None):
     # Like widths(), but interpolated independently within each labeled
-    # region (e.g. the output of branch.allocate), so widths do not diffuse
+    # region (e.g. the output of ramify.allocate), so widths do not diffuse
     # across path boundaries at junctions. Each region is seeded only by the
     # centerline pixels inside it. Regions containing no centerline pixels
     # are filled by nearest-centerline fallback (with a warning) so the
